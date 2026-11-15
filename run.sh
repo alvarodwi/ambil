@@ -4,17 +4,7 @@ set -euo pipefail
 
 JAR_NAME="ambil.jar"
 JAVA_OPTS="-Xms512m -Xmx1G"
-CONFIG_DIR="./config"
-CONFIG_URI="file://$(realpath "$CONFIG_DIR")/"
-PIDFILE="./gachatracker.pid"
-
-echo "📁 Using config from: $CONFIG_URI"
-
-# Ensure config directory exists
-if [[ ! -d "$CONFIG_DIR" ]]; then
-  echo "❌ Config directory does not exist: $CONFIG_DIR"
-  exit 1
-fi
+PIDFILE="./ambil.pid"
 
 # If DISPLAY or XAUTHORITY aren't set (possible if running locally or in a different context), set them
 if [[ -z "${DISPLAY:-}" || -z "${XAUTHORITY:-}" ]]; then
@@ -26,7 +16,6 @@ fi
 # Run the JAR
 echo "🚀 Starting the JAR: $JAR_NAME"
 nohup java $JAVA_OPTS -jar "$JAR_NAME" \
-  --spring.config.additional-location="$CONFIG_URI" \
   >> ./ambil.log 2>&1 &
 
 # Capture the PID of the Java process
