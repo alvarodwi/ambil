@@ -4,11 +4,11 @@
 
 | Branch | Purpose |
 |---|---|
-| `main` | Released code only. Every commit on `main` is a tagged release (`vX.Y.Z`). Never commit to it directly. |
+| `main` | Released code only. Every merge into `main` is a tagged release (`vX.Y.Z`). The initial commit, which holds only the baseline specs, is the one untagged commit. Never commit to it directly. |
 | `develop` | Integration branch. All change branches start from it and merge back into it. |
 | `<type>/<change-name>` | One branch per OpenSpec change. `<type>` is `feat`, `fix` or `chore`. `<change-name>` is the OpenSpec change name, e.g. `feat/add-shadow-jar`. |
 
-`v1.0.0` marks the first working version on Linux.
+`v1.0.0` marks the first working version on Linux. `build.gradle.kts` already says `1.0.0`, so that release skips the bump.
 
 ## One change
 
@@ -30,7 +30,7 @@
 Release only after several changes have piled up in `develop`.
 
 1. On `develop`, bump `version` in `build.gradle.kts` using semver:
-   - major: breaking change to `config.yaml`, scraper definitions or CLI usage
+   - major: breaking change to `config.json` or a job config
    - minor: new feature
    - patch: fixes only
 2. Commit the bump: `chore(release): vX.Y.Z`.
@@ -38,7 +38,7 @@ Release only after several changes have piled up in `develop`.
    ```sh
    git switch main
    git merge --no-ff develop
-   git tag -a vX.Y.Z -m "scraver X.Y.Z"
+   git tag -a vX.Y.Z -m "ambil X.Y.Z"
    ```
-4. Build the artifact from the tagged commit: `./gradlew clean shadowJar`. The runnable jar is `build/libs/scraver-X.Y.Z-all.jar`.
+4. Build the artifact from the tagged commit: `./gradlew clean shadowJar`. The runnable jar is `build/libs/ambil.jar`, the name `start.sh` runs.
 5. Switch back to `develop` to continue work.
