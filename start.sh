@@ -13,6 +13,10 @@ echo "📁 Working dir: $(pwd)"
 echo "📄 Logging to: $LOGFILE"
 
 # If running over SSH, attach to graphical display session
+# Note: this only helps when a desktop session is logged in on the server's screen (:0).
+# Without one, a visible Chrome ("headless": false, or the blablalink login window) exits at
+# start with "SessionNotCreatedException ... Chrome instance exited".
+# Over SSH, set "headless": true in config.json. Do the blablalink login at the server's screen.
 if [[ -n "${SSH_CONNECTION:-}" || -n "${SSH_CLIENT:-}" ]]; then
   export DISPLAY=:0
   export XAUTHORITY="$HOME/.Xauthority"

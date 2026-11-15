@@ -7,6 +7,8 @@ JAVA_OPTS="-Xms512m -Xmx1G"
 PIDFILE="./ambil.pid"
 
 # If DISPLAY or XAUTHORITY aren't set (possible if running locally or in a different context), set them
+# Note: without a usable display, only "headless": true works. A visible Chrome ("headless": false,
+# or the blablalink login window) exits at start with "Chrome instance exited". See start.sh.
 if [[ -z "${DISPLAY:-}" || -z "${XAUTHORITY:-}" ]]; then
   echo "🔴 Missing DISPLAY or XAUTHORITY, skipping GUI binding"
 else
