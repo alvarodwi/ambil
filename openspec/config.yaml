@@ -30,3 +30,21 @@ schema: spec-driven
 #     archive:
 #       guidance:
 #         - Summarize the archive outcome before finishing
+
+context: |
+  Follow CONTRIBUTING.md for branches. Each change lives on its own branch
+  `<type>/<change-name>` (type: feat, fix or chore), cut from `develop`.
+  Create the branch before writing the first artifact, so propose, apply and
+  archive all land on that branch. Never commit to `main`.
+
+rules:
+  tasks:
+    - End with a `## Workflow follow-up` section naming the `<type>/<change-name>` branch and the archive and `--no-ff` merge into `develop`
+
+operations:
+  apply:
+    guidance:
+      - Before the first edit, check that the current branch is the change's `<type>/<change-name>` branch. If it is not, stop and ask
+  archive:
+    guidance:
+      - Archive on the change branch, commit there, then merge into `develop` with `git merge --no-ff` and delete the branch with `git branch -d`
