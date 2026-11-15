@@ -120,73 +120,30 @@ class BlablalinkClient(
 
     private fun browseAndLike(): String {
         val numOfPosts = 5
-        driver.get("https://www.blablalink.com/?plate_type=outpost")
-
-        // Wait until the infinite scroll container has at least one post loaded
-        val scrollContainerXPath = "//div[@data-cname='infinite-scroll']"
-        val firstPostXPath = "$scrollContainerXPath//div[@data-cname='index'][1]"
-        waitFor(15).until(
-            ExpectedConditions.visibilityOfElementLocated(By.xpath(firstPostXPath)),
-        )
+        driver.get(FEED_URL)
+        waitFor(15).until(ExpectedConditions.visibilityOfElementLocated(POST))
 
         var postsLiked = 0
-        var currentIndex = 1
+        var index = 0
 
         while (postsLiked < numOfPosts) {
-            val scrollContainer =
-                waitFor(10).until(
-                    ExpectedConditions.visibilityOfElementLocated(By.xpath(scrollContainerXPath)),
-                )
-            val posts = scrollContainer.findElements(By.xpath(".//div[@data-cname='index']"))
+            val posts = driver.findElements(POST)
 
-            if (currentIndex > posts.size) {
-                js.executeScript(
-                    "arguments[0].scrollTop = arguments[0].scrollHeight",
-                    scrollContainer,
-                )
+            if (index >= posts.size) {
+                // The scrolling element is an ancestor of the feed, so move the last post into view instead
+                posts.lastOrNull()?.let { js.executeScript("arguments[0].scrollIntoView({block:'end'})", it) }
                 // Wait for new posts to appear rather than a fixed sleep; none means the feed is exhausted
-                if (!waitForMorePosts(scrollContainerXPath, posts.size)) break
+                if (!waitForMorePosts(posts.size)) break
                 continue
             }
 
-            val postXPath = "$scrollContainerXPath//div[@data-cname='index'][$currentIndex]"
-            val post: WebElement = driver.findElement(By.xpath(postXPath))
-
-            js.executeScript(
-                "arguments[0].scrollIntoView({behavior:'smooth', block:'center'})",
-                post,
-            )
-            Thread.sleep(800)
-
             try {
-                val likeButton =
-                    post.findElement(
-                        By.xpath("./div[last() - 1]/div[last()]//span[3]//span[@data-cname='like']"),
-                    )
-                val color = likeButton.getCssValue("color")
-                val isLiked = color.contains("62, 175, 255")
-
-                if (!isLiked) {
-                    js.executeScript("arguments[0].click();", likeButton) // bypass overlay blocks
-                    postsLiked++
-                    Thread.sleep(800)
-
-                    // Open post detail to satisfy "read post" mission, then go back
-                    post.findElement(By.xpath("./div[2]")).click()
-                    waitFor(5).until(ExpectedConditions.urlContains("/post/detail"))
-                    Thread.sleep(800)
-                    driver.navigate().back()
-
-                    // Wait until the feed is visible again before continuing
-                    waitFor(10).until(
-                        ExpectedConditions.visibilityOfElementLocated(By.xpath(scrollContainerXPath)),
-                    )
-                }
+                if (likeAndRead(posts[index], index + 1)) postsLiked++
             } catch (e: Exception) {
-                log.info("[BlaBlaLink] Skipping post #{}: {}", currentIndex, e.message)
+                log.info("[BlaBlaLink] Skipping post #{}: {}", index + 1, e.message)
             }
-
-            currentIndex++
+            returnToFeed()
+            index++
         }
 
         log.info("[BlaBlaLink] Liked $postsLiked posts")
@@ -194,20 +151,62 @@ class BlablalinkClient(
     }
 
     /**
+     * Likes [post] only when the site shows it not liked, so an existing like is never removed,
+     * then opens it for the "read post" mission. True only when the like registered and the post opened.
+     */
+    private fun likeAndRead(
+        post: WebElement,
+        number: Int,
+    ): Boolean {
+        js.executeScript("arguments[0].scrollIntoView({behavior:'smooth', block:'center'})", post)
+        Thread.sleep(800)
+
+        fun readLikeState() = likeState(post.findElement(LIKE_ICON).getDomAttribute("style"))
+
+        val state = readLikeState()
+        if (state != LikeState.NOT_LIKED) {
+            log.info("[BlaBlaLink] Skipping post #{}: like state {}", number, state)
+            return false
+        }
+
+        js.executeScript("arguments[0].click();", post.findElement(LIKE_BUTTON)) // bypass overlay blocks
+        try {
+            waitFor(5).until { readLikeState() == LikeState.LIKED }
+        } catch (_: TimeoutException) {
+            log.info("[BlaBlaLink] Skipping post #{}: like did not register", number)
+            return false
+        }
+        Thread.sleep(800)
+
+        val openTarget = post.findElement(POST_OPEN)
+        try {
+            openTarget.click()
+        } catch (_: ElementClickInterceptedException) {
+            js.executeScript("arguments[0].click();", openTarget) // an overlay covers the post
+        }
+        waitFor(5).until(ExpectedConditions.urlContains("/post/detail"))
+        Thread.sleep(800)
+        driver.navigate().back()
+        return true
+    }
+
+    /** Ends each post back on the feed; reloads it when a failure left the browser elsewhere. */
+    private fun returnToFeed() {
+        if (appears(POST, seconds = 5)) return
+        driver.get(FEED_URL)
+        waitFor(15).until(ExpectedConditions.visibilityOfElementLocated(POST))
+    }
+
+    /**
      * After scrolling, waits until the post count increases beyond [previousCount].
      * Returns false if no new posts appear within the timeout.
      */
     private fun waitForMorePosts(
-        scrollContainerXPath: String,
         previousCount: Int,
         timeoutSeconds: Long = 5,
     ): Boolean =
         try {
-            waitFor(timeoutSeconds).until { d ->
-                val container = d.findElements(By.xpath(scrollContainerXPath)).firstOrNull()
-                val current = container?.findElements(By.xpath(".//div[@data-cname='index']"))?.size ?: 0
-                current > previousCount
-            }
+            waitFor(timeoutSeconds).until { d -> d.findElements(POST).size > previousCount }
             true
         } catch (_: Exception) {
             log.warn("[BlaBlaLink] No new posts loaded after scroll, stopping: feed exhausted")
@@ -345,6 +344,13 @@ internal fun chromeArguments(
     }
 
 private const val MISSION_URL = "https://www.blablalink.com/mission"
+
+// Classic layout: visible runs then share the post structure headless runs always get (the site saves the choice)
+private const val FEED_URL = "https://www.blablalink.com/?pc_layout=legacy&plate_type=outpost"
+private val POST = By.xpath("//div[@data-cname='infinite-scroll']/div[@plate_name]")
+private val LIKE_BUTTON = By.xpath(".//span[@data-cname='like']")
+private val LIKE_ICON = By.xpath(".//span[@data-cname='like']//span[@data-cname='svg-icon']")
+private val POST_OPEN = By.xpath("./div[2]")
 private val DAILY_SIGN_IN_ROW = By.xpath("//div[contains(text(), 'Daily Sign-in')]")
 private val LOG_IN_CHIP = By.xpath("//div[normalize-space(text())='Log In']")
 private val LOG_IN_CHIP_CLICKABLE = By.xpath("./ancestor::div[contains(@class, 'cursor-pointer')][1]")
@@ -363,6 +369,17 @@ internal fun signInState(iconClass: String?): SignInState =
         "icon-gift-true" in iconClass -> SignInState.CLAIMED
         "icon-gift" in iconClass -> SignInState.UNCLAIMED
         else -> SignInState.UNKNOWN
+    }
+
+internal enum class LikeState { LIKED, NOT_LIKED, UNKNOWN }
+
+/** The like icon's inline style is `color: var(--text-3)` before a like and `color: var(--brand-1)` after. */
+internal fun likeState(iconStyle: String?): LikeState =
+    when {
+        iconStyle == null -> LikeState.UNKNOWN
+        "--brand-1" in iconStyle -> LikeState.LIKED
+        "--text-3" in iconStyle -> LikeState.NOT_LIKED
+        else -> LikeState.UNKNOWN
     }
 
 /**
