@@ -134,6 +134,14 @@ class SchedulerManager {
     }
 
     /**
+     * Run a registered job once now, on its own thread, skipped if that job is already running.
+     */
+    fun runNow(name: String) {
+        val job = jobs.first { it.name == name }
+        Thread { executeJob(job) }.start()
+    }
+
+    /**
      * Stop all scheduled executions gracefully.
      */
     fun stop() {

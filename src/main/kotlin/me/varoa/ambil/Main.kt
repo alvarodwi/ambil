@@ -43,15 +43,12 @@ fun main() {
     }
 
     // Registering checks names, dailyTime and timezone, so finish it before anything runs
-    val tasks =
-        enabledJobs.map { scheduledJob ->
-            scheduledJob to
-                createTask(
-                    config = scheduledJob.config,
-                    headless = appConfig.headless,
-                )
-        }
-    tasks.forEach { (scheduledJob, task) ->
+    enabledJobs.forEach { scheduledJob ->
+        val task =
+            createTask(
+                config = scheduledJob.config,
+                headless = appConfig.headless,
+            )
         scheduler.schedule(
             name = scheduledJob.name,
             dailyTime = scheduledJob.schedule.dailyTime,
@@ -73,20 +70,12 @@ fun main() {
 
     scheduler.start()
 
-    tasks.forEach { (scheduledJob, task) ->
-        if (scheduledJob.runOnStartup) {
-            log.info(
-                "runOnStartup enabled for '${scheduledJob.name}'",
-            )
-            Thread {
-                executeJob(
-                    scheduledJob = scheduledJob,
-                    task = task,
-                    retryExecutor = retryExecutor,
-                    telegram = telegram,
-                )
-            }.start()
-        }
+    enabledJobs.filter { it.runOnStartup }.forEach { scheduledJob ->
+        log.info(
+            "runOnStartup enabled for '${scheduledJob.name}'",
+        )
+        // Through the scheduler, so it shares the overlap lock with daily runs
+        scheduler.runNow(scheduledJob.name)
     }
 
     log.info("Scheduler running")
