@@ -1,0 +1,47 @@
+{
+  "headless": false,
+  "jobs": [
+      {
+        "name": "",
+        "enabled": true,
+        "runOnStartup": false,
+        "schedule": {
+          "dailyTime": "08:00",
+          "timezone": "Asia/Jakarta"
+        },
+        "retry": {
+          "maxAttempts": 0,
+          "initialDelaySeconds": 0,
+          "maxDelaySeconds": 0,
+          "multiplier": 0
+        },
+        "config": {
+          ... # see below
+        }
+      }
+    ]
+}
+
+# config can be either
+for discord:
+{
+  "userToken": "",
+  "interactions": [
+    {
+      "guild_id": "",
+      "channel_id": "",
+      "message_id": "",
+      "application_id": "",
+      "session_id": "",
+      "component_type": 2,
+      "custom_id": ""
+    }
+  ]
+}
+
+or
+for blablalink:
+{
+  "username": "",
+  "password": ""
+}
