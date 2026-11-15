@@ -7,24 +7,21 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import me.varoa.ambil.model.config.DiscordConfig
 import me.varoa.ambil.model.config.DiscordInteractionConfig
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.slf4j.LoggerFactory
-import java.util.concurrent.TimeUnit
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 
 class DiscordClient(
     private val config: DiscordConfig,
 ) {
     private val log = LoggerFactory.getLogger(DiscordClient::class.java)
-    private val json = "application/json".toMediaType()
-
     private val http =
-        OkHttpClient
-            .Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+        HttpClient
+            .newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
             .build()
 
     /**
@@ -46,13 +43,14 @@ class DiscordClient(
      * Mirrors exactly what the browser sends when you manually click the reward button.
      */
     private fun clickButton(interaction: DiscordInteractionConfig): Result<Unit> {
-        val body = interactionPayload(interaction, generateNonce()).toString().toRequestBody(json)
+        val body = interactionPayload(interaction, generateNonce()).toString()
 
         val request =
-            Request
-                .Builder()
-                .url("https://discord.com/api/v9/interactions")
-                .post(body)
+            HttpRequest
+                .newBuilder()
+                .uri(URI.create("https://discord.com/api/v9/interactions"))
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Authorization", config.userToken)
                 .header("Content-Type", "application/json")
                 .header(
@@ -65,30 +63,22 @@ class DiscordClient(
                 .build()
 
         return try {
-            val response = http.newCall(request).execute()
-            response.use {
-                when {
-                    it.code == 204 -> {
-                        log.info("[Discord] Button click successful (204)")
-                        Result.success(Unit)
-                    }
+            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            val code = response.statusCode()
+            when (code) {
+                200, 204 -> {
+                    log.info("[Discord] Button click successful ($code)")
+                    Result.success(Unit)
+                }
 
-                    it.code == 200 -> {
-                        log.info("[Discord] Button click successful (200)")
-                        Result.success(Unit)
-                    }
+                429 -> {
+                    log.warn("[Discord] Rate limited: ${response.body()}")
+                    Result.failure(RuntimeException("Rate limited: ${response.body()}"))
+                }
 
-                    it.code == 429 -> {
-                        val rb = it.body.string()
-                        log.warn("[Discord] Rate limited: $rb")
-                        Result.failure(RuntimeException("Rate limited: $rb"))
-                    }
-
-                    else -> {
-                        val rb = it.body.string()
-                        log.error("[Discord] Failed. Code: ${it.code}, Body: $rb")
-                        Result.failure(RuntimeException("HTTP ${it.code}: $rb"))
-                    }
+                else -> {
+                    log.error("[Discord] Failed. Code: $code, Body: ${response.body()}")
+                    Result.failure(RuntimeException("HTTP $code: ${response.body()}"))
                 }
             }
         } catch (e: Exception) {
