@@ -22,7 +22,6 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
 
 class BlablalinkClient(
-    private val notifier: TelegramNotifier,
     private val headless: Boolean = true,
 ) {
     private val log = LoggerFactory.getLogger(BlablalinkClient::class.java)
@@ -44,21 +43,9 @@ class BlablalinkClient(
                 success = true,
             )
         } catch (e: SessionExpiredException) {
-            notifySessionExpired()
-            BlablalinkResult(
-                signIn = "Session expired",
-                likes = "-",
-                success = false,
-            )
+            // Let RetryExecutor see it, so it stops instead of retrying
+            throw e
         } catch (e: Exception) {
-            notifier.send(
-                """
-                ❌ BlaBlaLink automation failed
-                
-                ${e.message}
-                """.trimIndent(),
-            )
-
             log.error("Automation failed", e)
             BlablalinkResult(
                 signIn = "Failed: ${e.message}",
@@ -68,17 +55,6 @@ class BlablalinkClient(
         } finally {
             driver.quit()
         }
-    }
-
-    private fun notifySessionExpired() {
-        notifier.send(
-            """
-            ⚠️ BlaBlaLink session expired
-            
-            Manual login required.
-            Restart ambil where a display is available and log in in the window that opens.
-            """.trimIndent(),
-        )
     }
 
     private fun loginAndClaimDailyReward(): String {
