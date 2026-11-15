@@ -32,24 +32,20 @@ fun main() {
     log.info("Configured jobs: ${appConfig.jobs.size}")
 
     val telegram = TelegramNotifier(appConfig.telegram)
-    val retryExecutor =
-        RetryExecutor(
-            telegram = telegram,
-        )
+    val retryExecutor = RetryExecutor()
     val scheduler = SchedulerManager()
 
     val enabledJobs = appConfig.jobs.filter { it.enabled }
 
     // Once, before any job (including runOnStartup) can use the shared browser profile
     if (enabledJobs.any { it.config is BlablalinkConfig }) {
-        BlablalinkClient(notifier = telegram, headless = appConfig.headless).ensureSession()
+        BlablalinkClient(headless = appConfig.headless).ensureSession()
     }
 
     enabledJobs.forEach { scheduledJob ->
         val task =
             createTask(
                 config = scheduledJob.config,
-                notifier = telegram,
                 headless = appConfig.headless,
             )
         scheduler.schedule(
@@ -109,7 +105,6 @@ fun main() {
  */
 private fun createTask(
     config: JobConfig,
-    notifier: TelegramNotifier,
     headless: Boolean,
 ): JobTask =
     when (config) {
@@ -127,7 +122,6 @@ private fun createTask(
             )
             val client =
                 BlablalinkClient(
-                    notifier = notifier,
                     headless = headless,
                 )
             BlablalinkJob(client)
