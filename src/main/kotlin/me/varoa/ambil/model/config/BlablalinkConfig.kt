@@ -3,9 +3,7 @@ package me.varoa.ambil.model.config
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// No credentials: login is manual in a persistent browser profile.
 @Serializable
 @SerialName("blablalink")
-data class BlablalinkConfig(
-    val username: String,
-    val password: String,
-) : JobConfig
+data object BlablalinkConfig : JobConfig

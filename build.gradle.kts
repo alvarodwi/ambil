@@ -34,6 +34,9 @@ dependencies {
 
     // Kotlin stdlib
     implementation(kotlin("stdlib"))
+
+    testImplementation(kotlin("test"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 kotlinter {
@@ -51,6 +54,10 @@ tasks {
 
     build {
         dependsOn(shadowJar)
+    }
+
+    test {
+        useJUnitPlatform()
     }
 }
 
