@@ -41,6 +41,12 @@ fun main() {
         it.retry.requireValid(it.name)
         (it.config as? DiscordConfig)?.requireValid(it.name)
     }
+    // One browser profile holds one account; a second job would reuse it and clash
+    val blablalinkJobs = enabledJobs.filter { it.config is BlablalinkConfig }
+    require(blablalinkJobs.size <= 1) {
+        "Only one enabled blablalink job is supported, found ${blablalinkJobs.size}: " +
+            blablalinkJobs.joinToString { "'${it.name}'" }
+    }
 
     // Registering checks names, dailyTime and timezone, so finish it before anything runs
     enabledJobs.forEach { scheduledJob ->

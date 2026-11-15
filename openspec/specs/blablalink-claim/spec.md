@@ -43,8 +43,8 @@ At startup, when at least one enabled blablalink job exists, the system SHALL ch
 - **THEN** the window closes, the timeout is logged, the scheduler starts, and other jobs run on schedule
 
 #### Scenario: Several blablalink jobs
-- **WHEN** two enabled blablalink jobs exist and the session is logged out
-- **THEN** only one login window opens at startup
+- **WHEN** two enabled blablalink jobs exist
+- **THEN** startup stops before any login window opens, as "Single blablalink job" requires
 
 #### Scenario: No blablalink job enabled
 - **WHEN** every blablalink job is disabled
@@ -129,3 +129,14 @@ The browser SHALL run with Chrome's sandbox enabled and SHALL NOT accept DevTool
 #### Scenario: Profile permissions
 - **WHEN** the system launches Chrome
 - **THEN** the profile directory exists with owner-only permissions (`0700`)
+
+### Requirement: Single blablalink job
+The system SHALL support one blablalink account, held in the one persistent browser profile. It SHALL reject at startup a configuration with more than one enabled blablalink job, with an error naming those jobs, before any browser opens or any job runs. Disabled blablalink jobs SHALL NOT count.
+
+#### Scenario: Two enabled blablalink jobs
+- **WHEN** jobs `blablalink` and `blablalink-alt` are both enabled blablalink jobs
+- **THEN** the system exits at startup with an error naming both jobs, and no browser opens
+
+#### Scenario: Second blablalink job disabled
+- **WHEN** one blablalink job is enabled and another has `enabled: false`
+- **THEN** the config loads and the enabled job runs
