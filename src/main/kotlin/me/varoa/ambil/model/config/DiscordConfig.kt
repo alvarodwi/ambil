@@ -10,4 +10,9 @@ data class DiscordConfig(
     // Or: Network tab, any request to discord.com/api, copy the "Authorization" header value.
     val userToken: String,
     val interactions: List<DiscordInteractionConfig>,
-) : JobConfig
+) : JobConfig {
+    /** Throws [IllegalArgumentException] naming [jobName] when there is nothing to claim. */
+    fun requireValid(jobName: String) {
+        require(interactions.isNotEmpty()) { "Job '$jobName': interactions must not be empty" }
+    }
+}
