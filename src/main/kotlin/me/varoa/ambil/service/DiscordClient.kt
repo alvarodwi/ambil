@@ -26,15 +26,16 @@ class DiscordClient(
 
     /**
      * Iterates all configured interactions and clicks each button.
-     * Returns a list of results in the same order as config.interactions.
+     * Returns (label, result) pairs in the same order as config.interactions.
+     * The label is the interaction's name, or its 1-based position when unnamed.
      */
-    fun clickAllButtons(): List<Result<Unit>> =
+    fun clickAllButtons(): List<Pair<String, Result<Unit>>> =
         config.interactions.mapIndexed { index, interaction ->
             log.info("[Discord] Clicking button ${index + 1}/${config.interactions.size} (customId=${interaction.customId})")
             val result = clickButton(interaction)
             // Small delay between interactions to avoid triggering rate limits
             if (index < config.interactions.lastIndex) Thread.sleep(1500)
-            result
+            (interaction.name?.takeIf { it.isNotBlank() } ?: "interaction ${index + 1}") to result
         }
 
     /**

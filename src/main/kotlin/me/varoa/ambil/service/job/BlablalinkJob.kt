@@ -13,7 +13,7 @@ class BlablalinkJob(
         val result = client.run()
 
         return if (result.success) {
-            JobResult(true, "Sign-in success")
+            JobResult(true, "${result.signIn}. ${result.likes}")
         } else {
             JobResult(false, result.signIn)
         }
