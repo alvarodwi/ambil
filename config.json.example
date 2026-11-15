@@ -28,6 +28,7 @@ for discord:
   "userToken": "",
   "interactions": [
     {
+      "name": "nikke daily",
       "guild_id": "",
       "channel_id": "",
       "message_id": "",

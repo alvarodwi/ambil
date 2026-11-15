@@ -21,4 +21,5 @@ data class DiscordInteractionConfig(
     val customId: String, // data.custom_id of the button
     @SerialName("component_type")
     val componentType: Int = 2, // 2 = Button, 3 = Select menu
+    val name: String? = null, // label in Telegram messages, e.g. "nikke daily"; not sent to Discord
 )

@@ -9,15 +9,21 @@ class DiscordJob(
 ) : JobTask {
     override val name = "discord"
 
-    override fun execute(): JobResult {
-        val results = client.clickAllButtons()
+    override fun execute(): JobResult = discordJobResult(client.clickAllButtons())
+}
 
-        val failed = results.any { it.isFailure }
-
-        return if (failed) {
-            JobResult(false, "Some interactions failed")
-        } else {
-            JobResult(true, "All interactions succeeded")
+/** Builds the outcome message from (label, result) pairs, one line per failed interaction. */
+fun discordJobResult(results: List<Pair<String, Result<Unit>>>): JobResult {
+    val claimed = results.filter { it.second.isSuccess }.map { it.first }
+    val failed =
+        results.mapNotNull { (label, result) ->
+            result.exceptionOrNull()?.let { "Failed: $label: ${it.message ?: it::class.simpleName}" }
         }
+    val claimedLine = "Claimed: ${claimed.joinToString(", ")}"
+
+    return if (failed.isEmpty()) {
+        JobResult(true, claimedLine)
+    } else {
+        JobResult(false, (failed + listOfNotNull(claimedLine.takeIf { claimed.isNotEmpty() })).joinToString("\n"))
     }
 }
