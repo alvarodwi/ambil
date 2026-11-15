@@ -18,9 +18,6 @@ repositories {
 }
 
 dependencies {
-    // HTTP client for Discord API calls
-    implementation(Square.okHttp3)
-
     // JSON serialization
     implementation(KotlinX.serialization.json)
 
