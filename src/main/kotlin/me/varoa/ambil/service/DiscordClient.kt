@@ -1,6 +1,10 @@
 package me.varoa.ambil.service
 
-import com.google.gson.Gson
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import me.varoa.ambil.model.config.DiscordConfig
 import me.varoa.ambil.model.config.DiscordInteractionConfig
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,7 +18,6 @@ class DiscordClient(
     private val config: DiscordConfig,
 ) {
     private val log = LoggerFactory.getLogger(DiscordClient::class.java)
-    private val gson = Gson()
     private val json = "application/json".toMediaType()
 
     private val http =
@@ -43,28 +46,7 @@ class DiscordClient(
      * Mirrors exactly what the browser sends when you manually click the reward button.
      */
     private fun clickButton(interaction: DiscordInteractionConfig): Result<Unit> {
-        val nonce = generateNonce()
-
-        // This payload mirrors the exact structure Discord's client sends.
-        // All field names must match — Discord validates the shape server-side.
-        val payload =
-            mapOf(
-                "type" to 3,
-                "nonce" to nonce,
-                "guild_id" to interaction.guildId,
-                "channel_id" to interaction.channelId,
-                "message_flags" to 0,
-                "message_id" to interaction.messageId,
-                "application_id" to interaction.applicationId,
-                "session_id" to interaction.sessionId,
-                "data" to
-                    mapOf(
-                        "component_type" to interaction.componentType,
-                        "custom_id" to interaction.customId,
-                    ),
-            )
-
-        val body = gson.toJson(payload).toRequestBody(json)
+        val body = interactionPayload(interaction, generateNonce()).toString().toRequestBody(json)
 
         val request =
             Request
@@ -126,23 +108,48 @@ class DiscordClient(
      */
     private fun buildSuperProperties(): String {
         val props =
-            mapOf(
-                "os" to "Windows",
-                "browser" to "Chrome",
-                "device" to "",
-                "system_locale" to "en-US",
-                "browser_user_agent" to
+            buildJsonObject {
+                put("os", "Windows")
+                put("browser", "Chrome")
+                put("device", "")
+                put("system_locale", "en-US")
+                put(
+                    "browser_user_agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "browser_version" to "124.0.0.0",
-                "os_version" to "10",
-                "referrer" to "",
-                "referring_domain" to "",
-                "release_channel" to "stable",
-                "client_build_number" to 290510,
-                "client_event_source" to null,
-            )
+                )
+                put("browser_version", "124.0.0.0")
+                put("os_version", "10")
+                put("referrer", "")
+                put("referring_domain", "")
+                put("release_channel", "stable")
+                put("client_build_number", 290510)
+                put("client_event_source", JsonNull)
+            }
         return java.util.Base64
             .getEncoder()
-            .encodeToString(gson.toJson(props).toByteArray())
+            .encodeToString(props.toString().toByteArray())
     }
 }
+
+/**
+ * The interaction body, in the exact shape Discord's client sends.
+ * All field names must match — Discord validates the shape server-side.
+ */
+internal fun interactionPayload(
+    interaction: DiscordInteractionConfig,
+    nonce: String,
+): JsonObject =
+    buildJsonObject {
+        put("type", 3)
+        put("nonce", nonce)
+        put("guild_id", interaction.guildId)
+        put("channel_id", interaction.channelId)
+        put("message_flags", 0)
+        put("message_id", interaction.messageId)
+        put("application_id", interaction.applicationId)
+        put("session_id", interaction.sessionId)
+        putJsonObject("data") {
+            put("component_type", interaction.componentType)
+            put("custom_id", interaction.customId)
+        }
+    }
