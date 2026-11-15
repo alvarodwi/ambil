@@ -38,7 +38,14 @@ fun main() {
         )
     val scheduler = SchedulerManager()
 
-    appConfig.jobs.filter { it.enabled }.forEach { scheduledJob ->
+    val enabledJobs = appConfig.jobs.filter { it.enabled }
+
+    // Once, before any job (including runOnStartup) can use the shared browser profile
+    if (enabledJobs.any { it.config is BlablalinkConfig }) {
+        BlablalinkClient(notifier = telegram, headless = appConfig.headless).ensureSession()
+    }
+
+    enabledJobs.forEach { scheduledJob ->
         val task =
             createTask(
                 config = scheduledJob.config,
@@ -123,7 +130,6 @@ private fun createTask(
                     notifier = notifier,
                     headless = headless,
                 )
-            client.initializeSession()
             BlablalinkJob(client)
         }
     }

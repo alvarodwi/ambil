@@ -5,19 +5,22 @@ import me.varoa.ambil.model.data.BlablalinkResult
 import me.varoa.ambil.model.exception.SessionExpiredException
 import org.openqa.selenium.By
 import org.openqa.selenium.JavascriptExecutor
+import org.openqa.selenium.TimeoutException
 import org.openqa.selenium.WebDriver
 import org.openqa.selenium.WebElement
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeOptions
 import org.openqa.selenium.support.ui.ExpectedConditions
 import org.openqa.selenium.support.ui.WebDriverWait
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
 
 class BlablalinkClient(
-//    private val config: BlablalinkConfig,
     private val notifier: TelegramNotifier,
     private val headless: Boolean = true,
 ) {
@@ -26,7 +29,7 @@ class BlablalinkClient(
     private val js get() = driver as JavascriptExecutor
 
     fun run(): BlablalinkResult {
-        driver = buildDriver()
+        driver = buildDriver(headless)
 
         return try {
             ensureLoggedIn()
@@ -49,10 +52,10 @@ class BlablalinkClient(
         } catch (e: Exception) {
             notifier.send(
                 """
-            ❌ BlaBlaLink automation failed
-            
-            ${e.message}
-            """.trimIndent()
+                ❌ BlaBlaLink automation failed
+                
+                ${e.message}
+                """.trimIndent(),
             )
 
             log.error("Automation failed", e)
@@ -69,11 +72,11 @@ class BlablalinkClient(
     private fun notifySessionExpired() {
         notifier.send(
             """
-        ⚠️ BlaBlaLink session expired
-        
-        Manual login required.
-        Please start the browser in non-headless mode and solve the captcha.
-        """.trimIndent()
+            ⚠️ BlaBlaLink session expired
+            
+            Manual login required.
+            Restart ambil where a display is available and log in in the window that opens.
+            """.trimIndent(),
         )
     }
 
@@ -84,32 +87,14 @@ class BlablalinkClient(
         val dailySignInXPath =
             "//div[contains(text(), 'Daily Sign-in')]//../following-sibling::div[contains(@class, 'cursor-pointer')]"
 
-        // Click daily sign-in if visible, otherwise we may already be on login page
+        // Login state was already checked by ensureLoggedIn().
         try {
             waitFor(10)
                 .until(
                     ExpectedConditions.elementToBeClickable(By.xpath(dailySignInXPath)),
                 ).click()
         } catch (_: Exception) {
-            // not present yet — may have redirected to login
-        }
-
-        val redirectedToLogin =
-            try {
-                waitFor(3).until(ExpectedConditions.urlToBe("https://www.blablalink.com/login"))
-                true
-            } catch (_: Exception) {
-                false
-            }
-
-        if (redirectedToLogin) {
-            login()
-            driver.get("https://www.blablalink.com/mission")
-            dismissCookieBanner()
-            waitFor(10)
-                .until(
-                    ExpectedConditions.elementToBeClickable(By.xpath(dailySignInXPath)),
-                ).click()
+            // shortcut: missing button is treated as already claimed, fix in fix/blablalink-signin-detection
         }
 
         return try {
@@ -146,16 +131,6 @@ class BlablalinkClient(
         } catch (_: Exception) {
             // Banner not present, nothing to do
         }
-    }
-
-    private fun login() {
-        error(
-            """
-        Automatic login disabled.
-        Use persistent Chrome profile.
-        Login manually when session expires.
-        """.trimIndent()
-        )
     }
 
     private fun browseAndLike(): String {
@@ -253,50 +228,92 @@ class BlablalinkClient(
         }
     }
 
-    fun initializeSession() {
-    driver = buildDriver()
-    try {
-        driver.get("https://www.blablalink.com/login")
-        
-        log.info("Trigger the login dialog if it doesn't open automatically, then solve captcha.")
-        val loginPanelLocator = By.xpath("//div[@data-cname='login-panel']")
-
-        log.info("Waiting for login panel to load...")
-        waitFor(15).until(
-            ExpectedConditions.visibilityOfElementLocated(loginPanelLocator)
-        )
-        
-        log.info("Login panel detected. Please log in manually and solve the captcha.")
-        log.info("Waiting for login panel to disappear after successful authentication...")
-
-        waitFor(600).until(
-            ExpectedConditions.invisibilityOfElementLocated(loginPanelLocator)
+    /**
+     * Startup step: checks the saved session once and opens a visible login window only
+     * when it is logged out. Never throws, so a failed login cannot stop other jobs.
+     */
+    fun ensureSession() =
+        ensureSession(
+            isLoggedIn = { withDriver(headless) { isLoggedIn() } },
+            login = ::loginInteractively,
+            log = log,
         )
 
-        log.info("Login panel gone. Session saved.")
-    } catch (e: Exception) {
-        log.error("Session initialization failed: ${e.message}")
-        throw e
-    } finally {
-        driver.quit()
+    /**
+     * Visible window: opens the login popup from the mission page's "Log In" chip, then the
+     * user logs in and solves the captcha within 10 minutes. Throws if still logged out after.
+     */
+    private fun loginInteractively() =
+        withDriver(headless = false) {
+            driver.get(MISSION_URL)
+            dismissCookieBanner()
+
+            val logInChip = waitFor(15).until(ExpectedConditions.visibilityOfElementLocated(LOG_IN_CHIP))
+            // shortcut: auto-click is best effort (a JS click did not open the panel); the user can click it
+            try {
+                logInChip.findElement(LOG_IN_CHIP_CLICKABLE).click()
+            } catch (e: Exception) {
+                log.info("[BlaBlaLink] Could not click Log In: {}", e.message)
+            }
+            log.info("[BlaBlaLink] If the login panel does not open, click Log In. You have 10 minutes.")
+
+            // One 10-minute budget covers opening the panel and finishing the login
+            val deadline = System.nanoTime() + Duration.ofMinutes(10).toNanos()
+
+            fun remainingSeconds() = maxOf(1, Duration.ofNanos(deadline - System.nanoTime()).seconds)
+
+            val loginPanelLocator = By.xpath("//div[@data-cname='login-panel']")
+            waitFor(remainingSeconds()).until(ExpectedConditions.visibilityOfElementLocated(loginPanelLocator))
+
+            log.info("[BlaBlaLink] Login panel open. Log in and solve the captcha.")
+            waitFor(remainingSeconds()).until(ExpectedConditions.invisibilityOfElementLocated(loginPanelLocator))
+
+            check(isLoggedIn()) { "Login panel closed but session is still logged out" }
+            log.info("[BlaBlaLink] Logged in. Session saved.")
+        }
+
+    private fun <T> withDriver(
+        headless: Boolean,
+        block: () -> T,
+    ): T {
+        driver = buildDriver(headless)
+        try {
+            return block()
+        } finally {
+            driver.quit()
+        }
     }
-}
+
+    /**
+     * Reads login state from the mission page without claiming anything.
+     * /mission never redirects when logged out; it shows a "Log In" chip instead.
+     */
+    private fun isLoggedIn(): Boolean {
+        driver.get(MISSION_URL)
+        val listRendered = appears(DAILY_SIGN_IN_ROW, seconds = 15)
+        // Short grace period: the chip may render just after the mission list
+        val logInVisible = listRendered && appears(LOG_IN_CHIP, seconds = 3)
+        return sessionState(listRendered, logInVisible)
+    }
+
+    private fun appears(
+        locator: By,
+        seconds: Long,
+    ): Boolean =
+        try {
+            waitFor(seconds).until(ExpectedConditions.visibilityOfElementLocated(locator))
+            true
+        } catch (_: TimeoutException) {
+            false
+        }
 
     private fun ensureLoggedIn() {
-        driver.get("https://www.blablalink.com/mission")
-
-        Thread.sleep(3000)
-
-        val url = driver.currentUrl
-
-        if (url?.contains("/login") ?: false) {
-            throw SessionExpiredException()
-        }
+        if (!isLoggedIn()) throw SessionExpiredException()
     }
 
     private fun waitFor(seconds: Long): WebDriverWait = WebDriverWait(driver, Duration.ofSeconds(seconds))
 
-    private fun buildDriver(): WebDriver {
+    private fun buildDriver(headless: Boolean): WebDriver {
         WebDriverManager.chromedriver().setup()
 
         val prefs =
@@ -306,32 +323,81 @@ class BlablalinkClient(
                 "autofill.profile_enabled" to false,
             )
 
+        // persistent profile holding the logged-in session
+        val profileDir = Paths.get(System.getProperty("user.home"), ".blablalink-profile")
+        prepareProfileDir(profileDir)
+
         val options =
             ChromeOptions().apply {
                 setExperimentalOption("prefs", prefs)
-                addArguments("--disable-notifications", "--disable-infobars")
-                if (headless) addArguments("--headless=new")
-
-                // persistent profile
-                val profileDir =
-                    Paths.get(
-                        System.getProperty("user.home"),
-                        ".blablalink-profile",
-                    )
-                addArguments("--user-data-dir=${profileDir.toAbsolutePath()}")
-                addArguments("--profile-directory=Default")
-
-                addArguments(
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--remote-allow-origins=*",
-                    "--disable-blink-features=AutomationControlled",
-                    "--window-size=1280,800",
-                )
+                addArguments(chromeArguments(headless, profileDir))
                 setExperimentalOption("excludeSwitches", listOf("enable-automation"))
                 setExperimentalOption("useAutomationExtension", false)
             }
         return ChromeDriver(options)
     }
+}
+
+/**
+ * Chrome flags for every launch. Sandbox stays on and DevTools keeps its origin check:
+ * the profile holds a logged-in session while the browser opens user-written posts.
+ */
+internal fun chromeArguments(
+    headless: Boolean,
+    profileDir: Path,
+): List<String> =
+    buildList {
+        add("--disable-notifications")
+        add("--disable-infobars")
+        if (headless) add("--headless=new")
+        add("--user-data-dir=${profileDir.toAbsolutePath()}")
+        add("--profile-directory=Default")
+        add("--disable-dev-shm-usage")
+        add("--disable-gpu")
+        add("--disable-blink-features=AutomationControlled")
+        add("--window-size=1280,800")
+    }
+
+private const val MISSION_URL = "https://www.blablalink.com/mission"
+private val DAILY_SIGN_IN_ROW = By.xpath("//div[contains(text(), 'Daily Sign-in')]")
+private val LOG_IN_CHIP = By.xpath("//div[normalize-space(text())='Log In']")
+private val LOG_IN_CHIP_CLICKABLE = By.xpath("./ancestor::div[contains(@class, 'cursor-pointer')][1]")
+
+/**
+ * Maps mission-page observations to logged in (true) or logged out (false).
+ * An unrendered page is an error, never "logged in".
+ */
+internal fun sessionState(
+    listRendered: Boolean,
+    logInVisible: Boolean,
+): Boolean {
+    check(listRendered) { "Mission page did not render, login state unknown" }
+    return !logInVisible
+}
+
+/**
+ * Calls [login] only when [isLoggedIn] is false. Any failure is logged, never thrown:
+ * runs then fail with a session-expired alert instead of stopping startup.
+ */
+internal fun ensureSession(
+    isLoggedIn: () -> Boolean,
+    login: () -> Unit,
+    log: Logger,
+) {
+    try {
+        if (isLoggedIn()) {
+            log.info("[BlaBlaLink] Saved session is logged in")
+            return
+        }
+        log.info("[BlaBlaLink] Saved session is logged out, opening login window")
+        login()
+    } catch (e: Exception) {
+        log.warn("[BlaBlaLink] Session setup failed, runs will report session expired: {}", e.message)
+    }
+}
+
+/** Creates the profile dir if missing and restricts it to its owner (session cookies live here). */
+internal fun prepareProfileDir(dir: Path) {
+    Files.createDirectories(dir)
+    Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"))
 }
