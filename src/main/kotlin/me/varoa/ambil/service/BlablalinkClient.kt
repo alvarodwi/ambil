@@ -4,6 +4,7 @@ import io.github.bonigarcia.wdm.WebDriverManager
 import me.varoa.ambil.model.data.BlablalinkResult
 import me.varoa.ambil.model.exception.SessionExpiredException
 import org.openqa.selenium.By
+import org.openqa.selenium.ElementClickInterceptedException
 import org.openqa.selenium.JavascriptExecutor
 import org.openqa.selenium.TimeoutException
 import org.openqa.selenium.WebDriver
@@ -81,35 +82,43 @@ class BlablalinkClient(
     }
 
     private fun loginAndClaimDailyReward(): String {
-        driver.get("https://www.blablalink.com/mission")
+        driver.get(MISSION_URL)
         dismissCookieBanner()
 
-        val dailySignInXPath =
-            "//div[contains(text(), 'Daily Sign-in')]//../following-sibling::div[contains(@class, 'cursor-pointer')]"
-
         // Login state was already checked by ensureLoggedIn().
-        try {
-            waitFor(10)
-                .until(
-                    ExpectedConditions.elementToBeClickable(By.xpath(dailySignInXPath)),
-                ).click()
-        } catch (_: Exception) {
-            // shortcut: missing button is treated as already claimed, fix in fix/blablalink-signin-detection
+        val row = waitFor(15).until(ExpectedConditions.visibilityOfElementLocated(SIGN_IN_ROW))
+
+        when (readSignInState()) {
+            SignInState.CLAIMED -> {
+                log.info("[BlaBlaLink] Already claimed today")
+                return "Already claimed today"
+            }
+
+            SignInState.UNKNOWN -> {
+                error("Daily Sign-in state not recognised, page may have changed")
+            }
+
+            SignInState.UNCLAIMED -> {}
         }
 
-        return try {
-            waitFor(5).until(
-                ExpectedConditions.visibilityOfElementLocated(
-                    By.xpath("//div[contains(text(), 'Sign In Success')]"),
-                ),
-            )
-            log.info("[BlaBlaLink] Daily sign-in reward claimed!")
-            "Sign in reward claimed!"
-        } catch (_: Exception) {
-            log.info("[BlaBlaLink] Already signed in today")
-            "Sign in again tomorrow!"
+        val button = row.findElement(SIGN_IN_BUTTON)
+        try {
+            button.click()
+        } catch (_: ElementClickInterceptedException) {
+            js.executeScript("arguments[0].click();", button) // an overlay covers the box
         }
+
+        try {
+            waitFor(10).until { readSignInState() == SignInState.CLAIMED }
+        } catch (_: TimeoutException) {
+            error("Clicked Daily Sign-in but it did not switch to claimed")
+        }
+        log.info("[BlaBlaLink] Daily sign-in reward claimed")
+        return "Sign-in reward claimed"
     }
+
+    /** Re-reads the icon each time: the site re-renders the row after a click. */
+    private fun readSignInState(): SignInState = signInState(driver.findElements(SIGN_IN_ICON).firstOrNull()?.getDomAttribute("class"))
 
     /**
      * Dismisses the cookie banner and waits until it is fully gone from the DOM,
@@ -159,8 +168,8 @@ class BlablalinkClient(
                     "arguments[0].scrollTop = arguments[0].scrollHeight",
                     scrollContainer,
                 )
-                // Wait for new posts to appear rather than a fixed sleep
-                waitForMorePosts(scrollContainerXPath, posts.size)
+                // Wait for new posts to appear rather than a fixed sleep; none means the feed is exhausted
+                if (!waitForMorePosts(scrollContainerXPath, posts.size)) break
                 continue
             }
 
@@ -210,23 +219,24 @@ class BlablalinkClient(
 
     /**
      * After scrolling, waits until the post count increases beyond [previousCount].
-     * Falls back gracefully if no new posts appear within the timeout.
+     * Returns false if no new posts appear within the timeout.
      */
     private fun waitForMorePosts(
         scrollContainerXPath: String,
         previousCount: Int,
         timeoutSeconds: Long = 5,
-    ) {
+    ): Boolean =
         try {
             waitFor(timeoutSeconds).until { d ->
                 val container = d.findElements(By.xpath(scrollContainerXPath)).firstOrNull()
                 val current = container?.findElements(By.xpath(".//div[@data-cname='index']"))?.size ?: 0
                 current > previousCount
             }
+            true
         } catch (_: Exception) {
-            log.warn("[BlaBlaLink] No new posts loaded after scroll — feed may be exhausted")
+            log.warn("[BlaBlaLink] No new posts loaded after scroll, stopping: feed exhausted")
+            false
         }
-    }
 
     /**
      * Startup step: checks the saved session once and opens a visible login window only
@@ -362,6 +372,22 @@ private const val MISSION_URL = "https://www.blablalink.com/mission"
 private val DAILY_SIGN_IN_ROW = By.xpath("//div[contains(text(), 'Daily Sign-in')]")
 private val LOG_IN_CHIP = By.xpath("//div[normalize-space(text())='Log In']")
 private val LOG_IN_CHIP_CLICKABLE = By.xpath("./ancestor::div[contains(@class, 'cursor-pointer')][1]")
+private const val SIGN_IN_ROW_XPATH = "//div[normalize-space(text())='Daily Sign-in']/ancestor::div[@data-cname='index'][1]"
+private val SIGN_IN_ROW = By.xpath(SIGN_IN_ROW_XPATH)
+private val SIGN_IN_BUTTON = By.xpath(".//div[contains(@class, 'cursor-pointer')]")
+private val SIGN_IN_ICON =
+    By.xpath("$SIGN_IN_ROW_XPATH//div[contains(@class, 'cursor-pointer')]//div[contains(@class, 'icon-gift')]")
+
+internal enum class SignInState { CLAIMED, UNCLAIMED, UNKNOWN }
+
+/** The Daily Sign-in icon is `icon-gift.png` before the claim and `icon-gift-true.png` after. */
+internal fun signInState(iconClass: String?): SignInState =
+    when {
+        iconClass == null -> SignInState.UNKNOWN
+        "icon-gift-true" in iconClass -> SignInState.CLAIMED
+        "icon-gift" in iconClass -> SignInState.UNCLAIMED
+        else -> SignInState.UNKNOWN
+    }
 
 /**
  * Maps mission-page observations to logged in (true) or logged out (false).
