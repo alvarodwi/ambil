@@ -36,6 +36,8 @@ fun main() {
     val scheduler = SchedulerManager()
 
     val enabledJobs = appConfig.jobs.filter { it.enabled }
+    // Before any browser session, scheduling or startup run
+    enabledJobs.forEach { it.retry.requireValid(it.name) }
 
     // Once, before any job (including runOnStartup) can use the shared browser profile
     if (enabledJobs.any { it.config is BlablalinkConfig }) {
