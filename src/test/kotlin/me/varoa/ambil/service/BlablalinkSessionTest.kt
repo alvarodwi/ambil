@@ -71,6 +71,22 @@ class BlablalinkSessionTest {
     }
 
     @Test
+    fun `liked icon`() {
+        assertEquals(LikeState.LIKED, likeState("color: var(--brand-1);"))
+    }
+
+    @Test
+    fun `not liked icon`() {
+        assertEquals(LikeState.NOT_LIKED, likeState("color: var(--text-3);"))
+    }
+
+    @Test
+    fun `missing or unrelated like icon is unknown`() {
+        assertEquals(LikeState.UNKNOWN, likeState(null))
+        assertEquals(LikeState.UNKNOWN, likeState("color: var(--line-1);"))
+    }
+
+    @Test
     fun `chrome arguments keep security protections`() {
         val profile = Path.of("/tmp/profile")
         val args = chromeArguments(headless = true, profileDir = profile)
