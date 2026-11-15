@@ -18,9 +18,6 @@ repositories {
 }
 
 dependencies {
-    // HTTP client for Discord API calls
-    implementation(Square.okHttp3)
-
     // JSON serialization
     implementation(KotlinX.serialization.json)
 
@@ -34,6 +31,9 @@ dependencies {
 
     // Kotlin stdlib
     implementation(kotlin("stdlib"))
+
+    testImplementation(kotlin("test"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 kotlinter {
@@ -51,6 +51,10 @@ tasks {
 
     build {
         dependsOn(shadowJar)
+    }
+
+    test {
+        useJUnitPlatform()
     }
 }
 

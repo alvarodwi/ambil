@@ -1,47 +1,58 @@
 {
-  "headless": false,
+  "telegram": {
+    "token": "123456:telegram-bot-token",
+    "chatId": "123456789"
+  },
+  "headless": true,
   "jobs": [
-      {
-        "name": "",
-        "enabled": true,
-        "runOnStartup": false,
-        "schedule": {
-          "dailyTime": "08:00",
-          "timezone": "Asia/Jakarta"
-        },
-        "retry": {
-          "maxAttempts": 0,
-          "initialDelaySeconds": 0,
-          "maxDelaySeconds": 0,
-          "multiplier": 0
-        },
-        "config": {
-          ... # see below
-        }
-      }
-    ]
-}
-
-# config can be either
-for discord:
-{
-  "userToken": "",
-  "interactions": [
     {
-      "guild_id": "",
-      "channel_id": "",
-      "message_id": "",
-      "application_id": "",
-      "session_id": "",
-      "component_type": 2,
-      "custom_id": ""
+      "name": "discord-nikke-daily",
+      "enabled": false,
+      "runOnStartup": false,
+      "schedule": {
+        "dailyTime": "08:00",
+        "timezone": "Asia/Jakarta"
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "initialDelaySeconds": 30,
+        "maxDelaySeconds": 300,
+        "multiplier": 2.0
+      },
+      "config": {
+        "type": "discord",
+        "userToken": "your-discord-user-token",
+        "interactions": [
+          {
+            "name": "nikke daily",
+            "application_id": "",
+            "guild_id": "",
+            "channel_id": "",
+            "message_id": "",
+            "session_id": "",
+            "custom_id": "",
+            "component_type": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "blablalink-daily",
+      "enabled": false,
+      "runOnStartup": false,
+      "schedule": {
+        "dailyTime": "08:05",
+        "timezone": "Asia/Jakarta"
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "initialDelaySeconds": 30,
+        "maxDelaySeconds": 300,
+        "multiplier": 2.0
+      },
+      "config": {
+        "type": "blablalink"
+      }
     }
   ]
-}
-
-or
-for blablalink:
-{
-  "username": "",
-  "password": ""
 }

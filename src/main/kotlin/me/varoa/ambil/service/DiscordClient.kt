@@ -1,40 +1,41 @@
 package me.varoa.ambil.service
 
-import com.google.gson.Gson
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import me.varoa.ambil.model.config.DiscordConfig
 import me.varoa.ambil.model.config.DiscordInteractionConfig
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.slf4j.LoggerFactory
-import java.util.concurrent.TimeUnit
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 
 class DiscordClient(
     private val config: DiscordConfig,
 ) {
     private val log = LoggerFactory.getLogger(DiscordClient::class.java)
-    private val gson = Gson()
-    private val json = "application/json".toMediaType()
-
     private val http =
-        OkHttpClient
-            .Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+        HttpClient
+            .newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
             .build()
 
     /**
      * Iterates all configured interactions and clicks each button.
-     * Returns a list of results in the same order as config.interactions.
+     * Returns (label, result) pairs in the same order as config.interactions.
+     * The label is the interaction's name, or its 1-based position when unnamed.
      */
-    fun clickAllButtons(): List<Result<Unit>> =
+    fun clickAllButtons(): List<Pair<String, Result<Unit>>> =
         config.interactions.mapIndexed { index, interaction ->
             log.info("[Discord] Clicking button ${index + 1}/${config.interactions.size} (customId=${interaction.customId})")
             val result = clickButton(interaction)
             // Small delay between interactions to avoid triggering rate limits
             if (index < config.interactions.lastIndex) Thread.sleep(1500)
-            result
+            (interaction.name?.takeIf { it.isNotBlank() } ?: "interaction ${index + 1}") to result
         }
 
     /**
@@ -42,70 +43,40 @@ class DiscordClient(
      * Mirrors exactly what the browser sends when you manually click the reward button.
      */
     private fun clickButton(interaction: DiscordInteractionConfig): Result<Unit> {
-        val nonce = generateNonce()
-
-        // This payload mirrors the exact structure Discord's client sends.
-        // All field names must match — Discord validates the shape server-side.
-        val payload =
-            mapOf(
-                "type" to 3,
-                "nonce" to nonce,
-                "guild_id" to interaction.guildId,
-                "channel_id" to interaction.channelId,
-                "message_flags" to 0,
-                "message_id" to interaction.messageId,
-                "application_id" to interaction.applicationId,
-                "session_id" to interaction.sessionId,
-                "data" to
-                    mapOf(
-                        "component_type" to interaction.componentType,
-                        "custom_id" to interaction.customId,
-                    ),
-            )
-
-        val body = gson.toJson(payload).toRequestBody(json)
+        val body = interactionPayload(interaction, generateNonce()).toString()
 
         val request =
-            Request
-                .Builder()
-                .url("https://discord.com/api/v9/interactions")
-                .post(body)
+            HttpRequest
+                .newBuilder()
+                .uri(URI.create("https://discord.com/api/v9/interactions"))
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Authorization", config.userToken)
                 .header("Content-Type", "application/json")
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                ).header("X-Super-Properties", buildSuperProperties())
-                .header("X-Discord-Locale", "en-US")
+                .header("User-Agent", USER_AGENT)
+                .header("X-Super-Properties", superProperties())
+                .header("X-Discord-Locale", LOCALE)
                 .header("Origin", "https://discord.com")
                 .header("Referer", "https://discord.com/channels/${interaction.guildId}/${interaction.channelId}")
                 .build()
 
         return try {
-            val response = http.newCall(request).execute()
-            response.use {
-                when {
-                    it.code == 204 -> {
-                        log.info("[Discord] Button click successful (204)")
-                        Result.success(Unit)
-                    }
+            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            val code = response.statusCode()
+            when (code) {
+                200, 204 -> {
+                    log.info("[Discord] Button click successful ($code)")
+                    Result.success(Unit)
+                }
 
-                    it.code == 200 -> {
-                        log.info("[Discord] Button click successful (200)")
-                        Result.success(Unit)
-                    }
+                429 -> {
+                    log.warn("[Discord] Rate limited: ${response.body()}")
+                    Result.failure(RuntimeException("Rate limited: ${response.body()}"))
+                }
 
-                    it.code == 429 -> {
-                        val rb = it.body.string()
-                        log.warn("[Discord] Rate limited: $rb")
-                        Result.failure(RuntimeException("Rate limited: $rb"))
-                    }
-
-                    else -> {
-                        val rb = it.body.string()
-                        log.error("[Discord] Failed. Code: ${it.code}, Body: $rb")
-                        Result.failure(RuntimeException("HTTP ${it.code}: $rb"))
-                    }
+                else -> {
+                    log.error("[Discord] Failed. Code: $code, Body: ${response.body()}")
+                    Result.failure(RuntimeException("HTTP $code: ${response.body()}"))
                 }
             }
         } catch (e: Exception) {
@@ -123,25 +94,56 @@ class DiscordClient(
      * X-Super-Properties is a base64-encoded JSON blob Discord attaches to every request.
      * Sniff your own from DevTools for best accuracy (any request → Headers → X-Super-Properties).
      */
-    private fun buildSuperProperties(): String {
-        val props =
-            mapOf(
-                "os" to "Windows",
-                "browser" to "Chrome",
-                "device" to "",
-                "system_locale" to "en-US",
-                "browser_user_agent" to
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "browser_version" to "124.0.0.0",
-                "os_version" to "10",
-                "referrer" to "",
-                "referring_domain" to "",
-                "release_channel" to "stable",
-                "client_build_number" to 290510,
-                "client_event_source" to null,
-            )
-        return java.util.Base64
+    private fun superProperties(): String =
+        java.util.Base64
             .getEncoder()
-            .encodeToString(gson.toJson(props).toByteArray())
-    }
+            .encodeToString(superPropertiesJson().toString().toByteArray())
 }
+
+// One browser identity, used by every header, so they always agree.
+// Taken from a Discord web client request captured in Firefox 149 on Windows.
+// shortcut: hardcoded, goes stale as Discord ships new builds; re-capture if Discord starts rejecting clicks.
+internal const val BROWSER_VERSION = "149.0"
+internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:$BROWSER_VERSION) Gecko/20100101 Firefox/$BROWSER_VERSION"
+internal const val LOCALE = "en-US"
+internal const val CLIENT_BUILD_NUMBER = 520959
+
+internal fun superPropertiesJson(): JsonObject =
+    buildJsonObject {
+        put("os", "Windows")
+        put("browser", "Firefox")
+        put("device", "")
+        put("system_locale", LOCALE)
+        put("has_client_mods", false)
+        put("browser_user_agent", USER_AGENT)
+        put("browser_version", BROWSER_VERSION)
+        put("os_version", "10")
+        put("referrer", "")
+        put("referring_domain", "")
+        put("release_channel", "stable")
+        put("client_build_number", CLIENT_BUILD_NUMBER)
+        put("client_event_source", JsonNull)
+    }
+
+/**
+ * The interaction body, in the exact shape Discord's client sends.
+ * All field names must match — Discord validates the shape server-side.
+ */
+internal fun interactionPayload(
+    interaction: DiscordInteractionConfig,
+    nonce: String,
+): JsonObject =
+    buildJsonObject {
+        put("type", 3)
+        put("nonce", nonce)
+        put("guild_id", interaction.guildId)
+        put("channel_id", interaction.channelId)
+        put("message_flags", 0)
+        put("message_id", interaction.messageId)
+        put("application_id", interaction.applicationId)
+        put("session_id", interaction.sessionId)
+        putJsonObject("data") {
+            put("component_type", interaction.componentType)
+            put("custom_id", interaction.customId)
+        }
+    }

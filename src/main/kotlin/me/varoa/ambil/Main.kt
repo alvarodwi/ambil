@@ -32,17 +32,27 @@ fun main() {
     log.info("Configured jobs: ${appConfig.jobs.size}")
 
     val telegram = TelegramNotifier(appConfig.telegram)
-    val retryExecutor =
-        RetryExecutor(
-            telegram = telegram,
-        )
+    val retryExecutor = RetryExecutor()
     val scheduler = SchedulerManager()
 
-    appConfig.jobs.filter { it.enabled }.forEach { scheduledJob ->
+    val enabledJobs = appConfig.jobs.filter { it.enabled }
+    // Before any browser session, scheduling or startup run
+    enabledJobs.forEach {
+        it.retry.requireValid(it.name)
+        (it.config as? DiscordConfig)?.requireValid(it.name)
+    }
+    // One browser profile holds one account; a second job would reuse it and clash
+    val blablalinkJobs = enabledJobs.filter { it.config is BlablalinkConfig }
+    require(blablalinkJobs.size <= 1) {
+        "Only one enabled blablalink job is supported, found ${blablalinkJobs.size}: " +
+            blablalinkJobs.joinToString { "'${it.name}'" }
+    }
+
+    // Registering checks names, dailyTime and timezone, so finish it before anything runs
+    enabledJobs.forEach { scheduledJob ->
         val task =
             createTask(
                 config = scheduledJob.config,
-                notifier = telegram,
                 headless = appConfig.headless,
             )
         scheduler.schedule(
@@ -57,23 +67,22 @@ fun main() {
                 telegram = telegram,
             )
         }
+    }
 
-        if (scheduledJob.runOnStartup) {
-            log.info(
-                "runOnStartup enabled for '${scheduledJob.name}'",
-            )
-            Thread {
-                executeJob(
-                    scheduledJob = scheduledJob,
-                    task = task,
-                    retryExecutor = retryExecutor,
-                    telegram = telegram,
-                )
-            }.start()
-        }
+    // Once, before any job (including runOnStartup) can use the shared browser profile
+    if (enabledJobs.any { it.config is BlablalinkConfig }) {
+        BlablalinkClient(headless = appConfig.headless).ensureSession()
     }
 
     scheduler.start()
+
+    enabledJobs.filter { it.runOnStartup }.forEach { scheduledJob ->
+        log.info(
+            "runOnStartup enabled for '${scheduledJob.name}'",
+        )
+        // Through the scheduler, so it shares the overlap lock with daily runs
+        scheduler.runNow(scheduledJob.name)
+    }
 
     log.info("Scheduler running")
     log.info("Press Ctrl+C to stop")
@@ -102,7 +111,6 @@ fun main() {
  */
 private fun createTask(
     config: JobConfig,
-    notifier: TelegramNotifier,
     headless: Boolean,
 ): JobTask =
     when (config) {
@@ -120,10 +128,8 @@ private fun createTask(
             )
             val client =
                 BlablalinkClient(
-                    notifier = notifier,
                     headless = headless,
                 )
-            client.initializeSession()
             BlablalinkJob(client)
         }
     }

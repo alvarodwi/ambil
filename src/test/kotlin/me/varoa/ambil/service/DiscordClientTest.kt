@@ -1,0 +1,40 @@
+package me.varoa.ambil.service
+
+import kotlinx.serialization.json.jsonPrimitive
+import me.varoa.ambil.model.config.DiscordInteractionConfig
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class DiscordClientTest {
+    @Test
+    fun `payload has the shape the Discord client sends`() {
+        val interaction =
+            DiscordInteractionConfig(
+                applicationId = "4",
+                channelId = "2",
+                guildId = "1",
+                messageId = "3",
+                sessionId = "5",
+                customId = "dailyCheckInButton",
+                name = "not sent",
+            )
+
+        assertEquals(
+            """{"type":3,"nonce":"99","guild_id":"1","channel_id":"2","message_flags":0,"message_id":"3",""" +
+                """"application_id":"4","session_id":"5","data":{"component_type":2,"custom_id":"dailyCheckInButton"}}""",
+            interactionPayload(interaction, "99").toString(),
+        )
+    }
+}
+
+class DiscordIdentityTest {
+    @Test
+    fun `super-properties describe the same browser as the headers`() {
+        val props = superPropertiesJson()
+        assertEquals(USER_AGENT, props["browser_user_agent"]?.jsonPrimitive?.content)
+        assertEquals(LOCALE, props["system_locale"]?.jsonPrimitive?.content)
+        assertEquals("Firefox", props["browser"]?.jsonPrimitive?.content)
+        assertTrue(USER_AGENT.contains("Firefox/${props["browser_version"]?.jsonPrimitive?.content}"))
+    }
+}

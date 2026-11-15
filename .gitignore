@@ -49,3 +49,8 @@ devnotes.txt
 ### Local tooling ###
 .codegraph/
 .idea/
+
+### Runtime ###
+logs/
+ambil.log
+ambil.pid

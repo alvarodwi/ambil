@@ -5,7 +5,6 @@ import java.time.Duration
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -28,8 +27,9 @@ class SchedulerManager {
 
     private val jobs = mutableListOf<ScheduledJob>()
 
+    // The pending run of each job
     private val scheduledFutures =
-        mutableListOf<ScheduledFuture<*>>()
+        ConcurrentHashMap<String, ScheduledFuture<*>>()
 
     /**
      * Prevent overlapping execution of the same job.
@@ -100,27 +100,10 @@ class SchedulerManager {
 
             val zoneId = ZoneId.of(job.timezone)
 
-            val localTime = LocalTime.parse(job.dailyTime)
-
-            val initialDelay =
-                computeInitialDelay(
-                    targetTime = localTime,
-                    zoneId = zoneId,
-                )
-
-            val period = Duration.ofDays(1).toMillis()
-
-            val future =
-                executor.scheduleAtFixedRate(
-                    {
-                        executeJob(job)
-                    },
-                    initialDelay,
-                    period,
-                    TimeUnit.MILLISECONDS,
-                )
-
-            scheduledFutures += future
+            scheduleAt(
+                job = job,
+                runAt = nextRun(LocalTime.parse(job.dailyTime), zoneId, ZonedDateTime.now(zoneId)),
+            )
 
             log.info(
                 "Activated '${job.name}' " +
@@ -134,16 +117,52 @@ class SchedulerManager {
     }
 
     /**
+     * One-shot run at [runAt]; when it ends, the next run is computed from the wall clock again,
+     * so it stays on dailyTime across daylight saving changes.
+     */
+    private fun scheduleAt(
+        job: ScheduledJob,
+        runAt: ZonedDateTime,
+    ) {
+        if (executor.isShutdown) return
+        val delay = Duration.between(ZonedDateTime.now(runAt.zone), runAt).toMillis().coerceAtLeast(0)
+        scheduledFutures[job.name] =
+            executor.schedule(
+                {
+                    try {
+                        executeJob(job)
+                    } finally {
+                        val now = ZonedDateTime.now(runAt.zone)
+                        // Never before runAt, so a timer firing early cannot run the job twice that day
+                        val after = if (now.isAfter(runAt)) now else runAt
+                        scheduleAt(job, nextRun(LocalTime.parse(job.dailyTime), runAt.zone, after))
+                    }
+                },
+                delay,
+                TimeUnit.MILLISECONDS,
+            )
+    }
+
+    /**
+     * Run a registered job once now, on its own thread, skipped if that job is already running.
+     */
+    fun runNow(name: String) {
+        val job = jobs.first { it.name == name }
+        Thread { executeJob(job) }.start()
+    }
+
+    /**
      * Stop all scheduled executions gracefully.
      */
     fun stop() {
         log.info("Stopping scheduler")
 
-        scheduledFutures.forEach {
+        // Shut down first, so a run ending now schedules no next run
+        executor.shutdown()
+
+        scheduledFutures.values.forEach {
             it.cancel(true)
         }
-
-        executor.shutdown()
 
         try {
             if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -215,26 +234,16 @@ class SchedulerManager {
         }
     }
 
-    /**
-     * Compute milliseconds until next execution time.
-     */
-    private fun computeInitialDelay(
-        targetTime: LocalTime,
-        zoneId: ZoneId,
-    ): Long {
-        val now = ZonedDateTime.now(zoneId)
-
-        var nextRun =
-            now
-                .withHour(targetTime.hour)
-                .withMinute(targetTime.minute)
-                .withSecond(0)
-                .withNano(0)
-
-        if (nextRun.isBefore(now)) {
-            nextRun = nextRun.plusDays(1)
+    companion object {
+        /** First [dailyTime] in [zone] strictly after [after]; a time inside a DST gap moves forward. */
+        fun nextRun(
+            dailyTime: LocalTime,
+            zone: ZoneId,
+            after: ZonedDateTime,
+        ): ZonedDateTime {
+            val date = after.withZoneSameInstant(zone).toLocalDate()
+            val today = date.atTime(dailyTime).atZone(zone)
+            return if (today.isAfter(after)) today else date.plusDays(1).atTime(dailyTime).atZone(zone)
         }
-
-        return ChronoUnit.MILLIS.between(now, nextRun)
     }
 }
