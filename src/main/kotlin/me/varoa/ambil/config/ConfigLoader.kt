@@ -16,7 +16,7 @@ object ConfigLoader {
         val configFile = resolveConfigFile()
         require(configFile.exists()) {
             "config.json not found at: ${configFile.absolutePath}\n" +
-                "Copy config.example.json to config.json and fill in your values."
+                "Copy config.json.example to config.json and fill in your values."
         }
         return try {
             json.decodeFromString<AppConfig>(
