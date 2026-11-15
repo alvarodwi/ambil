@@ -53,6 +53,24 @@ class BlablalinkSessionTest {
     }
 
     @Test
+    fun `claimed sign-in icon`() {
+        val cls = "w-[24px] h-[24px] bg-[length:100%_100%] mr-[19px] bg-[url('@/assets/imgs/common/icon-gift-true.png')]"
+        assertEquals(SignInState.CLAIMED, signInState(cls))
+    }
+
+    @Test
+    fun `unclaimed sign-in icon`() {
+        val cls = "w-[24px] h-[24px] bg-[length:100%_100%] mr-[19px] bg-[url('@/assets/imgs/common/icon-gift.png')]"
+        assertEquals(SignInState.UNCLAIMED, signInState(cls))
+    }
+
+    @Test
+    fun `missing or unrelated sign-in icon is unknown`() {
+        assertEquals(SignInState.UNKNOWN, signInState(null))
+        assertEquals(SignInState.UNKNOWN, signInState("w-[24px] bg-[url('@/assets/imgs/common/icon-star.png')]"))
+    }
+
+    @Test
     fun `chrome arguments keep security protections`() {
         val profile = Path.of("/tmp/profile")
         val args = chromeArguments(headless = true, profileDir = profile)
