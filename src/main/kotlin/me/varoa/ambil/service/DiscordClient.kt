@@ -53,11 +53,9 @@ class DiscordClient(
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Authorization", config.userToken)
                 .header("Content-Type", "application/json")
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                ).header("X-Super-Properties", buildSuperProperties())
-                .header("X-Discord-Locale", "en-US")
+                .header("User-Agent", USER_AGENT)
+                .header("X-Super-Properties", superProperties())
+                .header("X-Discord-Locale", LOCALE)
                 .header("Origin", "https://discord.com")
                 .header("Referer", "https://discord.com/channels/${interaction.guildId}/${interaction.channelId}")
                 .build()
@@ -96,30 +94,36 @@ class DiscordClient(
      * X-Super-Properties is a base64-encoded JSON blob Discord attaches to every request.
      * Sniff your own from DevTools for best accuracy (any request → Headers → X-Super-Properties).
      */
-    private fun buildSuperProperties(): String {
-        val props =
-            buildJsonObject {
-                put("os", "Windows")
-                put("browser", "Chrome")
-                put("device", "")
-                put("system_locale", "en-US")
-                put(
-                    "browser_user_agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                )
-                put("browser_version", "124.0.0.0")
-                put("os_version", "10")
-                put("referrer", "")
-                put("referring_domain", "")
-                put("release_channel", "stable")
-                put("client_build_number", 290510)
-                put("client_event_source", JsonNull)
-            }
-        return java.util.Base64
+    private fun superProperties(): String =
+        java.util.Base64
             .getEncoder()
-            .encodeToString(props.toString().toByteArray())
-    }
+            .encodeToString(superPropertiesJson().toString().toByteArray())
 }
+
+// One browser identity, used by every header, so they always agree.
+// Taken from a Discord web client request captured in Firefox 149 on Windows.
+// shortcut: hardcoded, goes stale as Discord ships new builds; re-capture if Discord starts rejecting clicks.
+internal const val BROWSER_VERSION = "149.0"
+internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:$BROWSER_VERSION) Gecko/20100101 Firefox/$BROWSER_VERSION"
+internal const val LOCALE = "en-US"
+internal const val CLIENT_BUILD_NUMBER = 520959
+
+internal fun superPropertiesJson(): JsonObject =
+    buildJsonObject {
+        put("os", "Windows")
+        put("browser", "Firefox")
+        put("device", "")
+        put("system_locale", LOCALE)
+        put("has_client_mods", false)
+        put("browser_user_agent", USER_AGENT)
+        put("browser_version", BROWSER_VERSION)
+        put("os_version", "10")
+        put("referrer", "")
+        put("referring_domain", "")
+        put("release_channel", "stable")
+        put("client_build_number", CLIENT_BUILD_NUMBER)
+        put("client_event_source", JsonNull)
+    }
 
 /**
  * The interaction body, in the exact shape Discord's client sends.
