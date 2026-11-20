@@ -14,6 +14,8 @@ import me.varoa.ambil.service.job.BlablalinkJob
 import me.varoa.ambil.service.job.DiscordJob
 import me.varoa.ambil.service.job.RetryExecutor
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
+import java.nio.file.Paths
 
 private val log = LoggerFactory.getLogger("me.varoa.ambil.MainKt")
 
@@ -35,6 +37,8 @@ fun main() {
     val retryExecutor = RetryExecutor()
     val scheduler = SchedulerManager()
 
+    val cookieExportPath = appConfig.cookieExportPath?.let(Paths::get)
+
     val enabledJobs = appConfig.jobs.filter { it.enabled }
     // Before any browser session, scheduling or startup run
     enabledJobs.forEach {
@@ -54,6 +58,7 @@ fun main() {
             createTask(
                 config = scheduledJob.config,
                 headless = appConfig.headless,
+                cookieExportPath = cookieExportPath,
             )
         scheduler.schedule(
             name = scheduledJob.name,
@@ -71,7 +76,7 @@ fun main() {
 
     // Once, before any job (including runOnStartup) can use the shared browser profile
     if (enabledJobs.any { it.config is BlablalinkConfig }) {
-        BlablalinkClient(headless = appConfig.headless).ensureSession()
+        BlablalinkClient(headless = appConfig.headless, cookieExportPath = cookieExportPath).ensureSession()
     }
 
     scheduler.start()
@@ -112,6 +117,7 @@ fun main() {
 private fun createTask(
     config: JobConfig,
     headless: Boolean,
+    cookieExportPath: Path?,
 ): JobTask =
     when (config) {
         is DiscordConfig -> {
@@ -129,6 +135,7 @@ private fun createTask(
             val client =
                 BlablalinkClient(
                     headless = headless,
+                    cookieExportPath = cookieExportPath,
                 )
             BlablalinkJob(client)
         }

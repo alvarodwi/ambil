@@ -17,7 +17,17 @@ class ConfigLoaderTest {
                 """{"telegram": {"token": "t", "chatId": "c"}, "jobs": []}""",
             )
         assertEquals(true, config.headless)
+        assertEquals(null, config.cookieExportPath)
         assertEquals(emptyList(), config.jobs)
+    }
+
+    @Test
+    fun `decodes cookie export path`() {
+        val config =
+            ConfigLoader.json.decodeFromString<AppConfig>(
+                """{"telegram": {"token": "t", "chatId": "c"}, "cookieExportPath": "/x/cookie.txt", "jobs": []}""",
+            )
+        assertEquals("/x/cookie.txt", config.cookieExportPath)
     }
 
     @Test

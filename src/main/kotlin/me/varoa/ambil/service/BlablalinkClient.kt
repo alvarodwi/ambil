@@ -18,11 +18,14 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
 import java.time.Duration
 
 class BlablalinkClient(
     private val headless: Boolean = true,
+    private val cookieExportPath: Path? = null,
 ) {
     private val log = LoggerFactory.getLogger(BlablalinkClient::class.java)
     private lateinit var driver: WebDriver
@@ -278,7 +281,24 @@ class BlablalinkClient(
         val listRendered = appears(DAILY_SIGN_IN_ROW, seconds = 15)
         // Short grace period: the chip may render just after the mission list
         val logInVisible = listRendered && appears(LOG_IN_CHIP, seconds = 3)
-        return sessionState(listRendered, logInVisible)
+        val loggedIn = sessionState(listRendered, logInVisible)
+        if (loggedIn && cookieExportPath != null) exportCookies(cookieExportPath)
+        return loggedIn
+    }
+
+    /** Best effort: never throws and never logs cookie values. */
+    private fun exportCookies(path: Path) {
+        try {
+            val header = cookieHeader(driver.manage().cookies.map { it.name to it.value })
+            if (header == null) {
+                log.warn("[BlaBlaLink] Cookie export skipped: game_token or game_openid missing")
+                return
+            }
+            writeCookieFile(path, header)
+            log.info("[BlaBlaLink] Cookies exported to {}", path)
+        } catch (e: Exception) {
+            log.warn("[BlaBlaLink] Cookie export failed: {}", e.message)
+        }
     }
 
     private fun appears(
@@ -412,6 +432,35 @@ internal fun ensureSession(
         login()
     } catch (e: Exception) {
         log.warn("[BlaBlaLink] Session setup failed, runs will report session expired: {}", e.message)
+    }
+}
+
+/**
+ * The `game_*` cookies as one Cookie header line, in browser order.
+ * Null when `game_token` or `game_openid` is missing or blank, so a working file is never replaced.
+ */
+internal fun cookieHeader(cookies: List<Pair<String, String>>): String? {
+    val game = cookies.filter { it.first.startsWith("game_") }
+    val required = listOf("game_token", "game_openid")
+    if (required.any { name -> game.none { it.first == name && it.second.isNotBlank() } }) return null
+    return game.joinToString("; ") { "${it.first}=${it.second}" }
+}
+
+/** Atomically replaces [path] with [header], owner-only where POSIX permissions exist (it holds a live session). */
+internal fun writeCookieFile(
+    path: Path,
+    header: String,
+) {
+    path.toAbsolutePath().parent?.let { Files.createDirectories(it) }
+    val tmp = path.resolveSibling("${path.fileName}.tmp")
+    try {
+        Files.writeString(tmp, header)
+        if (Files.getFileStore(tmp).supportsFileAttributeView(PosixFileAttributeView::class.java)) {
+            Files.setPosixFilePermissions(tmp, PosixFilePermissions.fromString("rw-------"))
+        }
+        Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+    } finally {
+        Files.deleteIfExists(tmp)
     }
 }
 

@@ -28,12 +28,15 @@ file current.
   session, so no caller changes.
   - Alternative: export at the end of `run()`. Rejected, because it would miss the startup check and the
     manual-login confirmation, which are exactly when a new session appears.
-- **Use the cookies Selenium can see on `/mission`.** `driver.manage().cookies` returns the cookies that
-  apply to `www.blablalink.com`, including those on `.blablalink.com`, which is where the API cookies live.
-  Write every one. shiniri-cli ignores the extras.
+- **Write only the `game_*` cookies Selenium sees on `/mission`.** `driver.manage().cookies` returns the
+  cookies that apply to `www.blablalink.com`, including the httpOnly ones on `.blablalink.com`, which is
+  where every `game_*` cookie lives (checked with a browser-extension export). The `game_*` set is what the
+  browser sends to `api.blablalink.com`. The `__ss_*` cookies sit on `.www.blablalink.com` and never reach
+  it, and a request still worked with the `Optanon*` cookies removed. Filtering also keeps the consent ID
+  out of the file.
 - **Pure, testable helpers.**
-  - `cookieHeader(cookies: List<Pair<String, String>>): String?` joins them as `name=value; name=value` in
-    the browser's order. It returns `null` if `game_token` or `game_openid` is missing or blank.
+  - `cookieHeader(cookies: List<Pair<String, String>>): String?` keeps the names starting with `game_` and
+    joins them as `name=value; name=value` in the browser's order. It returns `null` if `game_token` or `game_openid` is missing or blank.
   - `writeCookieFile(path: Path, header: String)` creates the parent directories and writes
     `<name>.tmp` next to the target. It sets `rw-------` when the file system supports POSIX permissions,
     then runs `Files.move(tmp, path, ATOMIC_MOVE, REPLACE_EXISTING)`.
@@ -49,10 +52,25 @@ file current.
 - **Permissions.** The file holds a live session, so it gets the same owner-only treatment as the profile
   directory. Linux is the target. On a file system without POSIX permissions, skip the chmod.
 
+## Token lifetime
+
+A browser export taken right after a login showed every `game_*` cookie expiring exactly 30 days after
+it was set. The pasted cookie goes stale on a timer (it is not killed by other logins, since the account can
+be logged in on several devices at once). There are two explanations, and the code is the same for both:
+
+- **A1, fixed token (assumed).** The server gives the token a lifetime shorter than 30 days, and visits do not
+  extend it. ambil's profile holds the same token and dies at the same moment. The export only helps after a
+  re-login in ambil, and a cookie-only job on a timer would not help either.
+- **A2, sliding token.** The site re-issues `game_token`, or pushes its expiry forward, on visits. ambil's daily
+  `/mission` load then keeps it alive, and shiniri-cli never goes stale while ambil runs.
+
+To tell them apart, compare the `game_token` value and its expiry in ambil's profile across two days (tasks.md
+3.1). If anything goes wrong later, such as shiniri-cli going stale while ambil reports logged in, start here.
+
 ## Risks / Trade-offs
 
-- The cookie refreshes only on ambil's checks, which run at startup and on the daily run. If the game token
-  lasts less than a day, shiniri-cli still sees `cookie rejected` between runs. Testing shows whether that
-  happens (see the Non-Goals).
+- Under A1, shiniri-cli still goes stale when the token dies. It recovers only once ambil notices the dead
+  session and the user logs in again. Under A2, the cookie refreshes only on ambil's checks (startup and the
+  daily run), so a token that lasts less than a day would still go stale between runs.
 - Both programs must run as the same user, or the owner-only file is unreadable to shiniri-cli. The user
   runs both on the homeserver.

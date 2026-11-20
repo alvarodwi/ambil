@@ -4,6 +4,7 @@
     "chatId": "123456789"
   },
   "headless": true,
+  "cookieExportPath": "/home/<user>/shiniri-cli/config/cookie.txt",
   "jobs": [
     {
       "name": "discord-nikke-daily",
