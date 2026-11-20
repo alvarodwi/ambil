@@ -21,7 +21,7 @@ The system SHALL read its configuration from a file named `config.json` located 
 - **THEN** the system exits at startup with an error naming the path it looked for
 
 ### Requirement: Top-level settings
-The configuration SHALL contain a `telegram` object with `token` and `chatId`, an optional `headless` boolean that defaults to `true`, and a `jobs` list.
+The configuration SHALL contain a `telegram` object with `token` and `chatId`, an optional `headless` boolean that defaults to `true`, an optional `cookieExportPath` string (no default, no export when absent), and a `jobs` list.
 
 #### Scenario: Headless omitted
 - **WHEN** the config has no `headless` field
@@ -30,6 +30,10 @@ The configuration SHALL contain a `telegram` object with `token` and `chatId`, a
 #### Scenario: Telegram missing
 - **WHEN** the config has no `telegram` object
 - **THEN** the system exits at startup with a parse error
+
+#### Scenario: Cookie export path omitted
+- **WHEN** the config has no `cookieExportPath` field
+- **THEN** the config loads and no cookie file is written
 
 ### Requirement: Job entry fields
 Each job entry SHALL have a `name`, an optional `enabled` flag (default `true`), an optional `runOnStartup` flag (default `false`), a `schedule` with `dailyTime` in 24-hour `HH:mm` and optional `timezone` (IANA ID, default `Asia/Jakarta`), a `retry` policy, and a typed `config`.
