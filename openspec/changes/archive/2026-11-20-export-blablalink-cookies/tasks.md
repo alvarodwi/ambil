@@ -16,7 +16,8 @@
 
 ## 3. Live check (user, on the homeserver)
 
-- [ ] 3.1 Set `cookieExportPath` to shiniri-cli's `config/cookie.txt` and start ambil. Confirm that the log shows `Cookies exported to ...`, the file is `rw-------`, and `uv run shiniri-cli` can fetch (for example `union live` or the `watch` check) with no manual cookie paste. Also confirm that the file holds only `game_*` cookies. The next day, compare the file's `game_token` with the day before. If it is the same, A1 (design.md, "Token lifetime") holds. If it changed, or its expiry moved forward, A2 holds, so update that note.
+- [x] 3.1 Set `cookieExportPath` to shiniri-cli's `config/cookie.txt` and start ambil. Confirm that the log shows `Cookies exported to ...`, the file is `rw-------`, and `uv run shiniri-cli` can fetch (for example `union live` or the `watch` check) with no manual cookie paste. Also confirm that the file holds only `game_*` cookies. The next day, compare the file's `game_token` with the day before. If it is the same, A1 (design.md, "Token lifetime") holds. If it changed, or its expiry moved forward, A2 holds, so update that note.
+  - 2026-11-20: live check passed on the homeserver (ambil jar built from this branch, shiniri-cli copied alongside). The next-day `game_token` comparison is still open, so A1 stays the assumption.
 
 ## Workflow follow-up
 
